@@ -1,24 +1,64 @@
-import os
-import datetime
-from flask import Flask, render_template, request, redirect, url_for, flash
+import streamlit as st
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import datetime
+import json
+import os
 
-app = Flask(__name__)
-app.secret_key = 'your_secret_key'  # Change this to a random string
+# Configuración de página
+st.set_page_config(
+    page_title="Encuesta de Opinión de Libros",
+    page_icon="📚",
+    layout="centered",
+    initial_sidebar_state="collapsed"
+)
 
-# Google Sheets setup
+# Estilos personalizados
+st.markdown("""
+    <style>
+    .title {
+        font-size: 42px;
+        font-weight: bold;
+        color: #1E3A8A;
+        margin-bottom: 20px;
+    }
+    .subtitle {
+        font-size: 24px;
+        color: #4B5563;
+        margin-bottom: 30px;
+    }
+    .stForm {
+        background-color: #F3F4F6;
+        padding: 20px;
+        border-radius: 10px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# Título y descripción
+st.markdown('<p class="title">Encuesta de Opinión de Libros</p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Por favor, comparte tu opinión sobre el libro que has leído.</p>', unsafe_allow_html=True)
+
+# Función para conectar con Google Sheets
 def get_google_sheet():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
-    credentials = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
-    client = gspread.authorize(credentials)
     
-    # Open the spreadsheet by its title - change 'Book Opinions Survey' to your sheet name
+    # Intentar leer desde variable de entorno o desde archivo local
+    if 'GOOGLE_CREDENTIALS' in os.environ:
+        json_creds = os.environ.get('GOOGLE_CREDENTIALS')
+        cred_dict = json.loads(json_creds)
+        credentials = ServiceAccountCredentials.from_json_keyfile_dict(cred_dict, scope)
+    else:
+        credentials = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+    
+    client = gspread.authorize(credentials)
     sheet = client.open('Book Opinions Survey').sheet1
     
-    # Check if the headers are already set
-    if sheet.row_count == 0 or (sheet.row_count == 1 and sheet.cell(1, 1).value is None):
-        # Set headers for the sheet
+    # Verificar si necesitamos agregar encabezados
+    values = sheet.get_all_values()
+    
+    # Si la hoja está vacía, agregamos encabezados
+    if not values:
         headers = [
             'Nombre del Participante',
             'Título del Libro',
@@ -29,52 +69,95 @@ def get_google_sheet():
             'Fecha de Envío'
         ]
         sheet.append_row(headers)
-        
+    
     return sheet
 
-@app.route('/', methods=['GET', 'POST'])
-def index():
-    if request.method == 'POST':
-        # Get form data
-        participant_name = request.form['participant_name']
-        book_title = request.form['book_title']
-        overall_rating = int(request.form['overall_rating'])
-        structure_rating = int(request.form['structure_rating'])
-        story_rating = int(request.form['story_rating'])
-        comments = request.form['comments']
-        date_submitted = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
+# Formulario de Streamlit
+with st.form("book_survey", border=False):
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        participant_name = st.text_input("Tu Nombre:", placeholder="Escribe tu nombre")
+    
+    with col2:
+        book_title = st.text_input("Título del Libro:", placeholder="Nombre del libro")
+    
+    # Ratings con sliders - más intuitivos que radio buttons
+    st.write("### Valoraciones")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("**Valoración General**")
+        st.write("¿Qué te pareció el libro en general?")
+        overall_rating = st.slider("General", 1, 5, 3, label_visibility="collapsed", 
+                                 help="1 = Muy malo, 5 = Excelente")
+        st.caption("1 = Muy malo, 5 = Excelente")
+    
+    with col2:
+        st.write("**Valoración de la Estructura**")
+        st.write("¿Cómo valoras la organización y estructura del libro?")
+        structure_rating = st.slider("Estructura", 1, 5, 3, label_visibility="collapsed", 
+                                   help="1 = Muy mala, 5 = Excelente")
+        st.caption("1 = Muy mala, 5 = Excelente")
+    
+    st.write("**Valoración de la Historia**")
+    st.write("¿Qué te pareció la trama o contenido del libro?")
+    story_rating = st.slider("Historia", 1, 5, 3, label_visibility="collapsed", 
+                           help="1 = Muy mala, 5 = Excelente")
+    st.caption("1 = Muy mala, 5 = Excelente")
+    
+    # Comentarios
+    st.write("### Comentarios")
+    comments = st.text_area("Comentarios Adicionales (Opcional):", 
+                          placeholder="Comparte tus pensamientos sobre el libro...",
+                          height=150)
+    
+    # Botón de envío
+    submitted = st.form_submit_button("Enviar Opinión", use_container_width=True, type="primary")
+
+# Procesar el formulario cuando se envía
+if submitted:
+    # Validación básica
+    if not participant_name.strip():
+        st.error("Por favor, ingresa tu nombre.")
+    elif not book_title.strip():
+        st.error("Por favor, ingresa el título del libro.")
+    else:
         try:
-            # Connect to Google Sheet and append data
-            sheet = get_google_sheet()
-            sheet.append_row([
-                participant_name,
-                book_title,
-                overall_rating,
-                structure_rating,
-                story_rating,
-                comments,
-                date_submitted
-            ])
-            flash('¡Gracias por enviar tu opinión!')
-            return redirect(url_for('thank_you'))
+            # Barra de progreso simulada
+            with st.spinner("Enviando tu opinión..."):
+                # Obtener fecha actual
+                date_submitted = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                # Conectar a Google Sheets y enviar datos
+                sheet = get_google_sheet()
+                sheet.append_row([
+                    participant_name,
+                    book_title,
+                    overall_rating,
+                    structure_rating,
+                    story_rating,
+                    comments,
+                    date_submitted
+                ])
+                
+                # Pequeña pausa para mejor experiencia de usuario
+                import time
+                time.sleep(1)
+            
+            # Mostrar mensaje de éxito
+            st.success("¡Gracias por enviar tu opinión!")
+            st.balloons()  # Efecto visual divertido
+            
+            # Opción para enviar otra respuesta
+            if st.button("Enviar otra opinión"):
+                st.experimental_rerun()
+            
         except Exception as e:
-            flash(f'Error al enviar tu respuesta: {str(e)}')
-    
-    return render_template('index.html')
+            st.error(f"Error al enviar tu respuesta: {str(e)}")
+            st.info("Por favor, verifica tu conexión a internet e inténtalo de nuevo.")
 
-@app.route('/thank-you')
-def thank_you():
-    return render_template('thank_you.html')
-
-if __name__ == '__main__':
-    # Try to initialize the Google Sheet with headers if needed
-    try:
-        sheet = get_google_sheet()
-    except Exception as e:
-        print(f"Error al configurar Google Sheet: {str(e)}")
-    
-    # Run the Flask app
-    import os
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+# Footer
+st.markdown("---")
+st.caption("Grupo de Lectura | Creado con Streamlit")
