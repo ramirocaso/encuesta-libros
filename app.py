@@ -43,34 +43,41 @@ st.markdown('<p class="subtitle">Por favor, comparte tu opinión sobre el libro 
 def get_google_sheet():
     scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
     
-    # Intentar leer desde variable de entorno o desde archivo local
-    if 'GOOGLE_CREDENTIALS' in os.environ:
-        json_creds = os.environ.get('GOOGLE_CREDENTIALS')
-        cred_dict = json.loads(json_creds)
-        credentials = ServiceAccountCredentials.from_json_keyfile_dict(cred_dict, scope)
-    else:
-        credentials = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+    try:
+        # Intentar leer desde variable de entorno (para Streamlit Cloud)
+        if 'GOOGLE_CREDENTIALS' in os.environ:
+            json_creds = os.environ.get('GOOGLE_CREDENTIALS')
+            cred_dict = json.loads(json_creds)
+            credentials = ServiceAccountCredentials.from_json_keyfile_dict(cred_dict, scope)
+        else:
+            # Para desarrollo local
+            credentials = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+        
+        client = gspread.authorize(credentials)
+        sheet = client.open('Book Opinions Survey').sheet1
+        
+        # Verificar si necesitamos agregar encabezados
+        values = sheet.get_all_values()
+        
+        # Si la hoja está vacía, agregamos encabezados
+        if not values:
+            headers = [
+                'Nombre del Participante',
+                'Título del Libro',
+                'Valoración General (1-5)',
+                'Valoración de la Estructura (1-5)',
+                'Valoración de la Historia (1-5)',
+                'Comentarios',
+                'Fecha de Envío'
+            ]
+            sheet.append_row(headers)
+        
+        return sheet
     
-    client = gspread.authorize(credentials)
-    sheet = client.open('Book Opinions Survey').sheet1
-    
-    # Verificar si necesitamos agregar encabezados
-    values = sheet.get_all_values()
-    
-    # Si la hoja está vacía, agregamos encabezados
-    if not values:
-        headers = [
-            'Nombre del Participante',
-            'Título del Libro',
-            'Valoración General (1-5)',
-            'Valoración de la Estructura (1-5)',
-            'Valoración de la Historia (1-5)',
-            'Comentarios',
-            'Fecha de Envío'
-        ]
-        sheet.append_row(headers)
-    
-    return sheet
+    except Exception as e:
+        st.error(f"Error al conectar con Google Sheets: {str(e)}")
+        st.info("Por favor contacta al administrador para resolver este problema.")
+        raise e
 
 # Formulario de Streamlit
 with st.form("book_survey", border=False):
